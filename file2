@@ -1,0 +1,75 @@
+#!/bin/bash
+
+set -e
+
+read -p "Full path to client config file to edit (example: /etc/openvpn/client/client.ovpn): " CLIENT_CONF
+read -p "Protocol (tcp or udp): " PROTO
+read -p "Remote/server IP: " REMOTE_IP
+read -p "Remote/server listening port: " REMOTE_PORT
+read -p "Client cert/key base name from Easy-RSA (example: laptop1): " CLIENT_NAME
+
+CA_FILE="/etc/openvpn/server/ca.crt"
+CERT_FILE="/etc/openvpn/server/${CLIENT_NAME}.crt"
+KEY_FILE="/etc/openvpn/server/${CLIENT_NAME}.key"
+TA_FILE="/etc/openvpn/server/ta.key"
+
+if [ ! -f "$CLIENT_CONF" ]; then
+    echo "Client config file not found: $CLIENT_CONF"
+    exit 1
+fi
+
+for f in "$CA_FILE" "$CERT_FILE" "$KEY_FILE" "$TA_FILE"; do
+    if [ ! -f "$f" ]; then
+        echo "Required file not found: $f"
+        exit 1
+    fi
+done
+
+# Comment out file-based TLS lines if present
+sed -i 's|^\s*ca .*|;ca removed for inline certs|' "$CLIENT_CONF"
+sed -i 's|^\s*cert .*|;cert removed for inline certs|' "$CLIENT_CONF"
+sed -i 's|^\s*key .*|;key removed for inline certs|' "$CLIENT_CONF"
+sed -i 's|^\s*tls-auth .*|;tls-auth removed for inline certs|' "$CLIENT_CONF"
+
+# Set proto
+if grep -qE '^\s*proto ' "$CLIENT_CONF"; then
+    sed -i "s|^\s*proto .*|proto $PROTO|" "$CLIENT_CONF"
+else
+    echo "proto $PROTO" >> "$CLIENT_CONF"
+fi
+
+# Set remote
+if grep -qE '^\s*remote ' "$CLIENT_CONF"; then
+    sed -i "s|^\s*remote .*|remote $REMOTE_IP $REMOTE_PORT|" "$CLIENT_CONF"
+else
+    echo "remote $REMOTE_IP $REMOTE_PORT" >> "$CLIENT_CONF"
+fi
+
+# Add key-direction 1 if not already present
+if ! grep -q '^key-direction 1' "$CLIENT_CONF"; then
+    echo "key-direction 1" >> "$CLIENT_CONF"
+fi
+
+# Append inline blocks
+cat >> "$CLIENT_CONF" <<EOF
+
+<ca>
+$(cat "$CA_FILE")
+</ca>
+
+<cert>
+$(cat "$CERT_FILE")
+</cert>
+
+<key>
+$(cat "$KEY_FILE")
+</key>
+
+<tls-auth>
+$(cat "$TA_FILE")
+</tls-auth>
+EOF
+
+echo
+echo "Done. Updated $CLIENT_CONF"
+echo "Review it before using it."
