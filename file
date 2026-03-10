@@ -1,0 +1,64 @@
+#!/bin/bash
+
+set -e
+
+SERVER_CONF="/etc/openvpn/server.conf"
+
+read -p "Local IP: " LOCAL_IP
+read -p "Listening port (example: 1194): " PORT
+read -p "Protocol (tcp or udp): " PROTO
+
+echo
+echo "For the next prompt:"
+echo "This is the TUNNEL network, not your LAN."
+echo "Example: 10.8.0.0 and 255.255.255.0"
+read -p "Tunnel server network IP: " VPN_NET
+read -p "Tunnel netmask: " VPN_MASK
+
+read -p "Full log file path (example: /var/log/openvpn/server.log): " LOG_PATH
+
+# Set local IP
+echo "local $LOCAL_IP" >> "$SERVER_CONF"
+
+# Set port
+sed -i "s|^[;#]*\s*port .*|port $PORT|" "$SERVER_CONF"
+
+# Set protocol
+if [ "$PROTO" = "tcp" ]; then
+    sed -i "s|^[;#]*\s*proto .*|proto tcp|" "$SERVER_CONF"
+elif [ "$PROTO" = "udp" ]; then
+    sed -i "s|^[;#]*\s*proto .*|proto udp|" "$SERVER_CONF"
+else
+    echo "Invalid protocol. Use tcp or udp."
+    exit 1
+fi
+
+# Full paths for CA/cert/key
+sed -i 's|^[;#]*\s*ca .*|ca /etc/openvpn/server/ca.crt|' "$SERVER_CONF"
+sed -i 's|^[;#]*\s*cert .*|cert /etc/openvpn/server/issued/server.crt|' "$SERVER_CONF"
+sed -i 's|^[;#]*\s*key .*|key /etc/openvpn/server/private/server.key|' "$SERVER_CONF"
+sed -i 's|^[;#]*\s*dh .*|dh /etc/openvpn/server/dh.pem|' "$SERVER_CONF"
+
+# Tunnel network
+sed -i "s|^[;#]*\s*server .*|server $VPN_NET $VPN_MASK|" "$SERVER_CONF"
+
+# tls-auth full path
+sed -i 's|^[;#]*\s*tls-auth .*|tls-auth /etc/openvpn/server/ta.key 0|' "$SERVER_CONF"
+
+# Uncomment user/group
+sed -i 's|^[;#]*\s*user openvpn|user openvpn|' "$SERVER_CONF"
+sed -i 's|^[;#]*\s*group openvpn|group openvpn|' "$SERVER_CONF"
+
+# Set log-append
+if grep -qE '^[;#]?\s*log-append ' "$SERVER_CONF"; then
+    sed -i "s|^[;#]*\s*log-append .*|log-append $LOG_PATH|" "$SERVER_CONF"
+else
+    echo "log-append $LOG_PATH" >> "$SERVER_CONF"
+fi
+
+# Set verbosity
+sed -i 's|^[;#]*\s*verb .*|verb 6|' "$SERVER_CONF"
+
+echo
+echo "Done. Updated $SERVER_CONF"
+echo "Review it before starting OpenVPN."
